@@ -201,7 +201,10 @@ async function startWhatsApp() {
 
                 if (shouldReconnect) {
                     sessionState.status = 'initializing';
-                    startWhatsApp();
+                    console.log('Waiting 3 seconds before reconnecting to allow session credentials to write to disk...');
+                    setTimeout(() => {
+                        startWhatsApp();
+                    }, 3000);
                 } else {
                     sessionState.status = 'logged_out';
                     sessionState.initializing = false;
