@@ -205,7 +205,15 @@ async function startWhatsApp() {
                 } else {
                     sessionState.status = 'logged_out';
                     sessionState.initializing = false;
-                    console.log('Session disconnected and logged out.');
+                    console.log('Session disconnected and logged out. Cleaning up credentials folder...');
+                    if (fs.existsSync('auth_info_baileys')) {
+                        try {
+                            fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+                            console.log('Successfully cleared invalid credentials folder.');
+                        } catch (err) {
+                            console.error('Failed to clear credentials folder:', err.message);
+                        }
+                    }
                 }
             } else if (connection === 'open') {
                 console.log('WhatsApp connection opened successfully!');
