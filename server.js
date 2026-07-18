@@ -776,53 +776,55 @@ app.get('/', (req, res) => {
                     const notify = document.getElementById('notification');
                     notify.style.display = 'none';
 
-                    const formData = new FormData(e.target);
-                    let url = '/api/send/text';
-                    
+                    const toVal = document.getElementById('toInput').value;
+                    const messageVal = document.getElementById('messageInput').value;
                     const imageFile = document.getElementById('imageFileInput').files[0];
                     const audioFile = document.getElementById('audioFileInput').files[0];
                     const imageUrl = document.getElementById('imageUrlInput').value;
                     const audioUrl = document.getElementById('audioUrlInput').value;
+                    const pttVal = document.getElementById('pttCheckbox').checked;
 
-                    // Dynamically select target endpoint based on inputs
-                    if (imageFile) {
+                    let url = '/api/send/text';
+                    let sendMode = 'text'; // text, media, media-url
+
+                    if (imageFile || audioFile) {
+                        sendMode = 'media';
                         url = '/api/send/media';
-                        formData.set('file', imageFile);
-                    } else if (audioFile) {
-                        url = '/api/send/media';
-                        formData.set('file', audioFile);
-                    } else if (imageUrl) {
+                    } else if (imageUrl || audioUrl) {
+                        sendMode = 'media-url';
                         url = '/api/send/media-url';
-                        formData.set('url', imageUrl);
-                    } else if (audioUrl) {
-                        url = '/api/send/media-url';
-                        formData.set('url', audioUrl);
                     }
 
                     try {
                         let response;
-                        if (url === '/api/send/text') {
-                            const to = formData.get('to');
-                            const message = formData.get('message');
+                        if (sendMode === 'text') {
                             response = await fetch(url, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ to, message })
+                                body: JSON.stringify({ to: toVal, message: messageVal })
                             });
-                        } else if (url === '/api/send/media-url') {
-                            const to = formData.get('to');
-                            const mediaUrl = formData.get('url');
-                            const caption = formData.get('message');
-                            const ptt = formData.get('ptt') === 'true' || formData.get('ptt') === 'on';
+                        } else if (sendMode === 'media-url') {
+                            const mediaUrl = imageUrl || audioUrl;
                             response = await fetch(url, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ to, url: mediaUrl, caption, ptt })
+                                body: JSON.stringify({ to: toVal, url: mediaUrl, caption: messageVal, ptt: pttVal })
                             });
                         } else {
+                            // Construct clean FormData manually to prevent Multer "Unexpected field" error
+                            const cleanFormData = new FormData();
+                            cleanFormData.append('to', toVal);
+                            cleanFormData.append('caption', messageVal);
+                            if (imageFile) {
+                                cleanFormData.append('file', imageFile);
+                            } else if (audioFile) {
+                                cleanFormData.append('file', audioFile);
+                                cleanFormData.append('ptt', pttVal ? 'true' : 'false');
+                            }
+                            
                             response = await fetch(url, {
                                 method: 'POST',
-                                body: formData
+                                body: cleanFormData
                             });
                         }
 
@@ -830,7 +832,6 @@ app.get('/', (req, res) => {
                         if (response.ok && result.ok) {
                             showNotification('Message sent successfully! Message ID: ' + result.message.id, 'success');
                             // Reset form except recipient
-                            const toVal = document.getElementById('toInput').value;
                             e.target.reset();
                             document.getElementById('toInput').value = toVal;
                         } else {
