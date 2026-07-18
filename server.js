@@ -1,10 +1,18 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const QRCode = require('qrcode');
 const pino = require('pino');
 const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
+
+// Global safety net to prevent process crashes on VPS (e.g. auth timeouts, stream errors)
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[Process Error] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+process.on('uncaughtException', (error) => {
+    console.error('[Process Error] Uncaught Exception:', error);
+});
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -149,10 +157,20 @@ async function startWhatsApp() {
     try {
         const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
+        // Fetch latest WhatsApp Web version to prevent stream error disconnects (515)
+        const { version, isLatest } = await fetchLatestBaileysVersion().catch(() => {
+            return { version: [2, 3000, 1017531287], isLatest: false }; // fallback version
+        });
+        console.log(`Using WhatsApp Web Version: ${version.join('.')}, isLatest: ${isLatest}`);
+
         sock = makeWASocket({
+            version: version,
             auth: state,
             printQRInTerminal: true, // Output to terminal for convenience
-            logger: logger
+            logger: logger,
+            browser: ['Ubuntu', 'Chrome', '110.0.5481.177'], // Chrome on Ubuntu browser string
+            connectTimeoutMs: 60000, // Timeout after 60 seconds
+            keepAliveIntervalMs: 30000
         });
 
         sock.ev.on('creds.update', saveCreds);
@@ -541,7 +559,7 @@ app.get('/', (req, res) => {
                 .status { display: inline-block; padding: 6px 12px; border-radius: 5px; font-weight: bold; margin-bottom: 20px; text-transform: uppercase; font-size: 14px; }
                 .status.ready { background-color: #d9fdd3; color: #128c7e; }
                 .status.initializing { background-color: #fff9db; color: #f08c00; }
-                .status.qr { background-color: #e8f4fd; color: #008f72; }
+                .status.qr { background-color: #e8f4fd; color: #0066cc; }
                 .status.not_started, .status.logged_out { background-color: #ffe0e0; color: #ea003b; }
                 .btn-group { display: flex; gap: 10px; margin-bottom: 25px; }
                 .btn-action { padding: 10px 18px; border-radius: 6px; font-weight: bold; cursor: pointer; border: none; font-size: 14px; text-decoration: none; text-align: center; }
@@ -563,18 +581,36 @@ app.get('/', (req, res) => {
         <body>
             <div class="container">
                 <h1>WhatsApp Web API Dashboard</h1>
-                <p>Status: <span id="statusBadge" class="status ${sessionState.status}">${sessionState.status.replace('_', ' ')}</span></p>
+                
+                <!-- Status Panel -->
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 25px; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e9ecef;">
+                    <div>
+                        <span style="font-weight: bold; color: #54656f; margin-right: 8px;">Status:</span>
+                        <span id="statusBadge" class="status ${sessionState.status}">${sessionState.status.replace('_', ' ')}</span>
+                    </div>
+                    <div id="sessionInfo" style="font-size: 14px; color: #54656f; display: ${sessionState.status === 'ready' ? 'block' : 'none'};">
+                        Connected as: <strong id="connectedUser">${sessionState.info?.pushname || 'User'} (${sessionState.info?.wid?.user || ''})</strong>
+                    </div>
+                </div>
                 
                 <div class="btn-group">
-                    <button onclick="startSession()" class="btn-action btn-primary">Start Session</button>
-                    <a href="/api/session/qr" target="_blank" class="btn-action btn-secondary">View QR Code</a>
-                    <button onclick="logoutSession()" class="btn-action btn-danger">Logout Session</button>
+                    <button id="startBtn" onclick="startSession()" class="btn-action btn-primary" style="display: ${(sessionState.status === 'ready' || sessionState.status === 'initializing' || sessionState.status === 'qr') ? 'none' : 'inline-block'};">Start Session</button>
+                    <button id="logoutBtn" onclick="logoutSession()" class="btn-action btn-danger" style="display: ${(sessionState.status === 'ready' || sessionState.status === 'initializing' || sessionState.status === 'qr') ? 'inline-block' : 'none'};">Logout/Close Session</button>
                 </div>
 
                 <div id="notification"></div>
 
-                <form id="sendMessageForm" enctype="multipart/form-data" style="background: #f8f9fa; border: 1px solid #e9ecef; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
-                    <h3 style="margin-top: 0; color: #00a884; margin-bottom: 15px;">Send WhatsApp Message</h3>
+                <!-- QR Code View Embedded on Homepage -->
+                <div id="qrContainer" style="display: ${(sessionState.status === 'qr' || sessionState.status === 'initializing') ? 'block' : 'none'}; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 25px; text-align: center; margin-bottom: 25px;">
+                    <h3 style="margin-top: 0; color: #00a884;">Scan QR Code to Connect</h3>
+                    <p style="color: #54656f; font-size: 14px; margin-bottom: 20px;">Open WhatsApp on your phone, go to Settings > Linked Devices, and scan this QR code.</p>
+                    <div id="qrSpinner" style="color: #666; font-size: 14px; padding: 20px; display: ${sessionState.status === 'initializing' ? 'block' : 'none'};">Generating QR code...</div>
+                    <img id="qrImage" src="${qrCodeImage || ''}" alt="WhatsApp QR Code" style="display: ${sessionState.status === 'qr' ? 'block' : 'none'}; max-width: 250px; margin: 0 auto; border: 1px solid #e9ecef; border-radius: 6px; padding: 5px; background: white;">
+                </div>
+
+                <!-- Send Message Testing Form -->
+                <form id="sendMessageForm" enctype="multipart/form-data" style="background: #f8f9fa; border: 1px solid #e9ecef; padding: 25px; border-radius: 8px; margin-bottom: 25px; display: ${sessionState.status === 'ready' ? 'block' : 'none'};">
+                    <h3 style="margin-top: 0; color: #00a884; margin-bottom: 15px;">Send WhatsApp Message (Test)</h3>
                     
                     <div class="form-group">
                         <label for="toInput">Recipient Phone Number (with Country Code):</label>
@@ -626,8 +662,8 @@ app.get('/', (req, res) => {
                         const res = await fetch('/api/session/start', { method: 'POST' });
                         const data = await res.json();
                         if (data.ok) {
-                            showNotification('Session starting, checking status...', 'success');
-                            setTimeout(() => location.reload(), 1500);
+                            showNotification('Session starting...', 'success');
+                            updateStatus();
                         } else {
                             showNotification('Error starting session: ' + data.error, 'error');
                         }
@@ -645,7 +681,7 @@ app.get('/', (req, res) => {
                         const data = await res.json();
                         if (data.ok) {
                             showNotification('Logged out successfully.', 'success');
-                            setTimeout(() => location.reload(), 1500);
+                            updateStatus();
                         } else {
                             showNotification('Error: ' + data.error, 'error');
                         }
@@ -659,6 +695,67 @@ app.get('/', (req, res) => {
                     notify.textContent = msg;
                     notify.className = type;
                     notify.style.display = 'block';
+                }
+
+                async function updateStatus() {
+                    try {
+                        const res = await fetch('/api/session/status');
+                        const data = await res.json();
+                        const session = data.session || {};
+
+                        const statusBadge = document.getElementById('statusBadge');
+                        const startBtn = document.getElementById('startBtn');
+                        const logoutBtn = document.getElementById('logoutBtn');
+                        const qrContainer = document.getElementById('qrContainer');
+                        const qrSpinner = document.getElementById('qrSpinner');
+                        const qrImage = document.getElementById('qrImage');
+                        const sendMessageForm = document.getElementById('sendMessageForm');
+                        const sessionInfo = document.getElementById('sessionInfo');
+                        const connectedUser = document.getElementById('connectedUser');
+
+                        // Update Badge
+                        statusBadge.className = 'status ' + session.status;
+                        statusBadge.textContent = session.status.replace('_', ' ').toUpperCase();
+
+                        if (session.status === 'ready') {
+                            startBtn.style.display = 'none';
+                            logoutBtn.style.display = 'inline-block';
+                            qrContainer.style.display = 'none';
+                            sendMessageForm.style.display = 'block';
+                            sessionInfo.style.display = 'block';
+                            connectedUser.textContent = (session.info?.pushname || 'User') + ' (' + (session.info?.wid?.user || '') + ')';
+                        } else if (session.status === 'initializing') {
+                            startBtn.style.display = 'none';
+                            logoutBtn.style.display = 'inline-block';
+                            qrContainer.style.display = 'block';
+                            qrSpinner.style.display = 'block';
+                            qrImage.style.display = 'none';
+                            sendMessageForm.style.display = 'none';
+                            sessionInfo.style.display = 'none';
+                        } else if (session.status === 'qr') {
+                            startBtn.style.display = 'none';
+                            logoutBtn.style.display = 'inline-block';
+                            qrContainer.style.display = 'block';
+                            sendMessageForm.style.display = 'none';
+                            sessionInfo.style.display = 'none';
+
+                            const qrRes = await fetch('/api/session/qr?format=json');
+                            const qrData = await qrRes.json();
+                            if (qrData.ok && qrData.image) {
+                                qrSpinner.style.display = 'none';
+                                qrImage.src = qrData.image;
+                                qrImage.style.display = 'block';
+                            }
+                        } else {
+                            startBtn.style.display = 'inline-block';
+                            logoutBtn.style.display = 'none';
+                            qrContainer.style.display = 'none';
+                            sendMessageForm.style.display = 'none';
+                            sessionInfo.style.display = 'none';
+                        }
+                    } catch (e) {
+                        console.error('Failed to sync status:', e);
+                    }
                 }
 
                 // Handle sending message via dashboard form
@@ -732,11 +829,9 @@ app.get('/', (req, res) => {
                     }
                 });
 
-                // Auto refresh state if initializing/qr to keep sync
-                const currentStatus = "${sessionState.status}";
-                if (currentStatus === "initializing" || currentStatus === "qr") {
-                    setTimeout(() => location.reload(), 5000);
-                }
+                // Poll status every 2 seconds
+                setInterval(updateStatus, 2000);
+                updateStatus();
             </script>
         </body>
         </html>
