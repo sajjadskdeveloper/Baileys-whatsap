@@ -201,6 +201,7 @@ async function startWhatsApp() {
 
                 if (shouldReconnect) {
                     sessionState.status = 'initializing';
+                    sessionState.initializing = false; // Reset flag to allow reconnect function to pass the guard
                     console.log('Waiting 3 seconds before reconnecting to allow session credentials to write to disk...');
                     setTimeout(() => {
                         startWhatsApp();
