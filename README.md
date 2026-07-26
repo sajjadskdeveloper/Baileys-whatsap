@@ -138,6 +138,7 @@ This ensures your application:
 ### Check if the server is running
 
 ```bash
+sudo iptables -I INPUT -p tcp --dport 3000 -j ACCEPT
 pm2 status
 pm2 logs whatsapp-api
 ```
