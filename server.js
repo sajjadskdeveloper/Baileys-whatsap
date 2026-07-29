@@ -261,7 +261,7 @@ async function startWhatsApp() {
                     console.log(`[Incoming Message] From: ${cleanSender} | Message: ${messageText}`);
 
                     // Send webhook POST if WEBHOOK_URL is set
-                    const webhookUrl = process.env. WEBHOOK_URL || "http://localhost:3001/api/webhook";
+                    const webhookUrl = process.env. WEBHOOK_URL || "https://shopify-adminpanel.vercel.app/api/webhook";
                     if (webhookUrl) {
                         try {
                             const payload = {
