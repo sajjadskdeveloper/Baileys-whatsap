@@ -247,8 +247,9 @@ async function startWhatsApp() {
                 for (const msg of m.messages) {
                     // Skip outgoing messages
                     if (msg.key.fromMe) continue;
+                    console.log(`[Incoming Message] Received message:`, JSON.stringify(msg, null, 2));
 
-                    const remoteJid = msg.key.remoteJid;
+                    const remoteJid = msg.key.remoteJidAlt;
                     const messageText = msg.message?.conversation || 
                                         msg.message?.extendedTextMessage?.text || 
                                         '';
@@ -260,7 +261,7 @@ async function startWhatsApp() {
                     console.log(`[Incoming Message] From: ${cleanSender} | Message: ${messageText}`);
 
                     // Send webhook POST if WEBHOOK_URL is set
-                    const webhookUrl = process.env.WEBHOOK_URL;
+                    const webhookUrl = process.env. WEBHOOK_URL || "http://localhost:3001/api/webhook";
                     if (webhookUrl) {
                         try {
                             const payload = {
@@ -281,10 +282,10 @@ async function startWhatsApp() {
                             });
 
                             if (response.ok) {
-                                const replyData = await response.json().catch(() => null);
-                                if (replyData) {
-                                    await handleWebhookReply(remoteJid, replyData, msg);
-                                }
+          //                      if (replyData) {
+             //                       await handleWebhookReply(remoteJid, replyData, msg);
+               //                 }
+                 //               const replyData = await response.json().catch(() => null);
                             }
                         } catch (error) {
                             console.error('[Webhook Error] Failed to send/process webhook:', error.message);
@@ -490,6 +491,7 @@ app.post('/api/send/media', verifyClientState, upload.single('file'), async (req
 // Send Media From URL
 app.post('/api/send/media-url', verifyClientState, async (req, res) => {
     const { to, url, caption } = req.body;
+    console.log(`[Send Media URL] Request received: to=${to}, url=${url}, caption=${caption}`);
 
     if (!to || !url) {
         return res.status(400).json({ ok: false, error: 'Missing "to" or "url" parameter' });
@@ -549,6 +551,9 @@ app.post('/api/send/media-url', verifyClientState, async (req, res) => {
         }
 
         const response = await sock.sendMessage(jid, messageOptions);
+        console.log(`[Send Media URL] Sent media to ${toCleanNumber(jid)} | Type: ${type} | URL: ${url}`);
+        console.log(`[Send Media URL] Response:`, response);
+
         res.json(formatSentMessageResponse(jid, caption || '', response, type, true));
     } catch (error) {
         res.status(500).json({ ok: false, error: error.message });
@@ -565,7 +570,7 @@ app.get('/', (req, res) => {
         <head>
             <title>WhatsApp Web API Dashboard</title>
             <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 40px; background-color: #f0f2f5; color: #111b21; }
+                body { font-family: -apple-system, BlinfkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 40px; background-color: #f0f2f5; color: #111b21; }
                 .container { max-width: 700px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
                 h1 { color: #00a884; margin-top: 0; }
                 .status { display: inline-block; padding: 6px 12px; border-radius: 5px; font-weight: bold; margin-bottom: 20px; text-transform: uppercase; font-size: 14px; }
