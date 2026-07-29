@@ -240,6 +240,20 @@ async function startWhatsApp() {
                 };
             }
         });
+        sock.ev.on("call", async (calls) => {
+  for (const call of calls) {
+    if (call.status === "offer") {
+      console.log(`Rejecting ${call.isVideo ? "video" : "voice"} call from ${call.from}`);
+
+      try {
+        await sock.rejectCall(call.id, call.from);
+        console.log("Call rejected");
+      } catch (err) {
+        console.error("Failed to reject call:", err);
+      }
+    }
+  }
+});
 
         // Event listener for incoming text messages and Webhook forwarding
         sock.ev.on('messages.upsert', async (m) => {
