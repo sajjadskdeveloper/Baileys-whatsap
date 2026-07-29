@@ -5,7 +5,7 @@ const pino = require('pino');
 const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
-
+require("dotenv").config();
 // Global safety net to prevent process crashes on VPS (e.g. auth timeouts, stream errors)
 process.on('unhandledRejection', (reason, promise) => {
     console.error('[Process Error] Unhandled Rejection at:', promise, 'reason:', reason);
@@ -261,7 +261,7 @@ async function startWhatsApp() {
                     console.log(`[Incoming Message] From: ${cleanSender} | Message: ${messageText}`);
 
                     // Send webhook POST if WEBHOOK_URL is set
-                    const webhookUrl = process.env. WEBHOOK_URL;
+                    const webhookUrl = process.env.WEBHOOK_URL;
                     console.log(`[Webhook] Forwarding message to webhook: ${webhookUrl}`);
                     if (webhookUrl) {
                         try {
